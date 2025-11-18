@@ -9,6 +9,7 @@
     "pre_processing_config": {
       "process": "standardize",
       "create_splits": true,
+      "split_by": "session",
       "get_stats": true,
       "get_ssl": true,
       "use_sensors": ["gsr", "ppg"],
@@ -26,13 +27,13 @@
         "in_channels": 2,
         "len_seq": 50,
         "out_channels": [
-          128,
-          256,
-          512
+          32,
+          64,
+          128
         ],
         "kernel_sizes": [
-          7,
-          7,
+          3,
+          5,
           7
         ],
         "stride": 1
@@ -59,7 +60,7 @@
       "batch_size": 32,
       "use_augmentations_in_sup": false,
       "kwargs": {
-        "lr": 0.0001,
+        "lr": 0.001,
         "optimizer_name": "adam",
         "freeze_encoder": false,
         "class_weights": [2.5, 1.0, 2.5]

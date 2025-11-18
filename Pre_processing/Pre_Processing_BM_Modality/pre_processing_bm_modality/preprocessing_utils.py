@@ -1,4 +1,4 @@
-from collections import deque
+from collections import defaultdict, deque
 import glob
 import datetime
 import os
@@ -41,36 +41,9 @@ def process_dataset(
         val_split: a dictionary containing the 'files' and 'labels' for validation
         test_split: a dictionary containing the 'files' and 'labels' for testing
     """
-
-    train_split = {'files': [], 'labels': []}
-    val_split = {'files': [], 'labels': []}
-    test_split = {'files': [], 'labels': []}
-
     get_ssl = pre_processing_cfg["get_ssl"] if "get_ssl" in pre_processing_cfg else False
     get_stats = pre_processing_cfg["get_stats"] if "get_stats" in pre_processing_cfg else False
 
-    # check if datasets has to be split in a 80/10/10 way, else put every subject in training
-    if pre_processing_cfg['create_splits']:
-        test_subjects = np.random.choice(all_subjects_dirs, max(1, int(0.1 * len(all_subjects_dirs))), replace=False)
-        no_test = [dir_ for dir_ in all_subjects_dirs if dir_ not in test_subjects]
-        val_subjects = np.random.choice(no_test, max(1, int(0.1 * len(all_subjects_dirs))), replace=False)
-        train_subjects = [dir_ for dir_ in all_subjects_dirs if dir_ not in test_subjects and dir_ not in val_subjects]
-    else:
-        train_subjects = all_subjects_dirs
-        val_subjects = []
-        test_subjects = []
-
-    print('train: ', train_subjects)
-    print('val: ', val_subjects)
-    print('test: ', test_subjects)
-
-    splits_phase = {'train': train_split, 'val': val_split, 'test': test_split}
-    if get_ssl:
-        ssl_train_split = {'files': []}
-        ssl_val_split = {'files': []}
-        ssl_test_split = {'files': []}
-        ssl_splits_phase = {'train': ssl_train_split, 'val': ssl_val_split, 'test': ssl_test_split}
-    subjects_phase = {'train': train_subjects, 'val': val_subjects, 'test': test_subjects}
 
     # get the right function to use, and create path to save files to is doesnt exist
     self_functions = {
@@ -97,117 +70,164 @@ def process_dataset(
 
     # go over each phase/split
     ovr_stats = []
-    for phase in ['train', 'val', 'test']:
-        split = splits_phase[phase]
-        if get_ssl:
-            ssl_split = ssl_splits_phase[phase]
-        subjects = subjects_phase[phase]
-        for subject_path in tqdm(subjects, desc=f"Preprocessing {phase} set"):
-            subject_path = os.path.join(full_dataset_path, subject_path)
-            # format: data_collection_SESSION_SENSOR_.csv
-            sessions = set([x.split("_")[2] for x in os.listdir(subject_path)])
+    processed_files = []
+    ssl_processed_files = []
 
-            for session in sessions:
-                processed_file_paths = []
-                if get_ssl:
-                    processed_file_paths_ssl = []
-                processed_file_labels = []
+    for subject_path in tqdm(all_subjects_dirs, desc=f"Preprocessing subject folders"):
+        subject_path = os.path.join(full_dataset_path, subject_path)
+        # format: data_collection_SESSION_SENSOR_.csv
+        sessions = set([x.split("_")[2] for x in os.listdir(subject_path)])
 
-                session_annot = glob.glob(os.path.join(subject_path, f"*{session}*PROGRESS_EVENT_.csv"))[0]
-                session_bm = glob.glob(os.path.join(subject_path, f"*{session}*SHIMMER_.csv"))[0]
+        for session in sessions:
+            processed_file_paths = []
+            if get_ssl:
+                processed_file_paths_ssl = []
+            processed_file_labels = []
+            processed_file_games = []
 
-                # Assign available labels from annotations to bio-measurement data
-                # to obtain dataframe with labeled signals corresponding to multiple levels (intervals)
-                processed_session, stats, processed_session_ssl = process_session(
-                    session_bm,
-                    session_annot,
-                    subject_path,
-                    session=session,
-                    get_ssl=get_ssl,
-                    get_stats=get_stats,
-                    use_sensors=use_sensors,
-                    borders=borders
+            session_annot = glob.glob(os.path.join(subject_path, f"*{session}*PROGRESS_EVENT_.csv"))[0]
+            session_bm = glob.glob(os.path.join(subject_path, f"*{session}*SHIMMER_.csv"))[0]
+
+            # Assign available labels from annotations to bio-measurement data
+            # to obtain dataframe with labeled signals corresponding to multiple levels (intervals)
+            processed_session, stats, processed_session_ssl = process_session(
+                session_bm,
+                session_annot,
+                subject_path,
+                session=session,
+                get_ssl=get_ssl,
+                get_stats=get_stats,
+                use_sensors=use_sensors,
+                borders=borders
+            )
+            if get_stats:
+                if stats:
+                    ovr_stats.append(stats)
+
+            # Segment each extracted level into shorter time windows
+            # Each level (interval) will be split into multiple segments with the same length
+            try:
+                segmented_session, labels, games = segment_processed_session(
+                    processed_session,
+                    seq_len,
+                    overlap,
+                    frequency=frequency
                 )
-                if get_stats:
-                    if stats:
-                        ovr_stats.append(stats)
+            except ValueError as e:
+                print(f"Error segmenting session: {str(e)}")
+                segmented_session = None
 
-                # Segment each extracted level into shorter time windows
-                # Each level (interval) will be split into multiple segments with the same length
+            if segmented_session is not None:
+                # apply pre-processing (e.g., normalization) for the whole session
+                preprocessed_session = preprocessing_to_apply(segmented_session)
+
+                for i, session_to_save in enumerate(preprocessed_session):
+                    # apply resampling if needed
+                    if resample_freq != frequency:
+                        session_to_save = resample_bm(session_to_save, frequency, resample_freq)
+
+                    filepath = os.path.join(
+                        outputs_folder,
+                        pre_processing_cfg['process'],
+                        f"{os.path.basename(subject_path)}_{session}_{i}_emotion_{labels[i]}_game_{games[i]}.npy"
+                    )
+
+                    np.save(filepath, session_to_save.astype(np.float32))
+
+                    processed_file_paths.append(filepath.split(os.sep)[-1])
+                    processed_file_labels.append(labels[i])
+                    processed_file_games.append(games[i])
+                
+                for i, filepath in enumerate(processed_file_paths):
+                    processed_files.append(
+                        (
+                            filepath,
+                            os.path.basename(subject_path),
+                            processed_file_labels[i],
+                            processed_file_games[i],
+                            session,
+                        )
+                    )
+            # repeat the processing for unlabeled ssl data
+            if get_ssl:
                 try:
-                    segmented_session, labels = segment_processed_session(
-                        processed_session,
+                    segmented_session_ssl = segment_processed_session_ssl(
+                        processed_session_ssl,
                         seq_len,
                         overlap,
                         frequency=frequency
                     )
-                except ValueError as e:
-                    print(f"Error segmenting session: {str(e)}")
-                    segmented_session = None
+                except ValueError:
+                    segmented_session_ssl = None
 
-                if segmented_session is not None:
+                if segmented_session_ssl is not None:
                     # apply pre-processing (e.g., normalization) for the whole session
-                    preprocessed_session = preprocessing_to_apply(segmented_session)
+                    preprocessed_session_ssl = preprocessing_to_apply(segmented_session_ssl)
 
-                    for i in range(len(preprocessed_session)):
-                        # apply resampling if needed
-                        session_to_save = preprocessed_session[i]
+                    for i, session_to_save in enumerate(preprocessed_session_ssl):
                         if resample_freq != frequency:
                             session_to_save = resample_bm(session_to_save, frequency, resample_freq)
-
                         filepath = os.path.join(
                             outputs_folder,
-                            pre_processing_cfg['process'],
-                            f"{os.path.basename(subject_path)}_{session}_{i}_emotion_{labels[i]}.npy"
+                            "ssl_" + pre_processing_cfg['process'],
+                            f"{os.path.basename(subject_path)}_{session}_{i}.npy"
                         )
 
                         np.save(filepath, session_to_save.astype(np.float32))
 
-                        processed_file_paths.append(filepath.split(os.sep)[-1])
-                        processed_file_labels.append(labels[i])
+                        processed_file_paths_ssl.append(filepath.split(os.sep)[-1])
 
-                    split['files'].extend(processed_file_paths)
-                    split['labels'].extend(processed_file_labels)
-
-                # repeat the processing for unlabeled ssl data
-                if get_ssl:
-                    try:
-                        segmented_session_ssl = segment_processed_session_ssl(
-                            processed_session_ssl,
-                            seq_len,
-                            overlap,
-                            frequency=frequency
-                        )
-                    except ValueError:
-                        segmented_session_ssl = None
-
-                    if segmented_session_ssl is not None:
-                        # apply pre-processing (e.g., normalization) for the whole session
-                        preprocessed_session_ssl = preprocessing_to_apply(segmented_session_ssl)
-
-                        for i in range(len(preprocessed_session_ssl)):
-                            session_to_save = preprocessed_session_ssl[i]
-                            if resample_freq != frequency:
-                                session_to_save = resample_bm(session_to_save, frequency, resample_freq)
-
-                            filepath = os.path.join(
-                                outputs_folder,
-                                "ssl_" + pre_processing_cfg['process'],
-                                f"{os.path.basename(subject_path)}_{session}_{i}.npy"
+                        ssl_processed_files.append(
+                            (
+                                filepath.split(os.sep)[-1],
+                                os.path.basename(subject_path),
+                                None,
+                                None,
+                                session,
                             )
+                        )
 
-                            np.save(filepath, session_to_save.astype(np.float32))
+            if segmented_session is None:
+                print(f"""Skipping subject {subject_path} session {session}.
+                        Error in pre-processing labeled data: Not enough labeled data""")
+            if get_ssl and segmented_session_ssl is None:
+                print(f"""Skipping subject {subject_path} session {session}.
+                        Error in pre-processing unlabeled data: Not enough unlabeled data""")
 
-                            processed_file_paths_ssl.append(filepath.split(os.sep)[-1])
+    df_processed = pd.DataFrame(processed_files, columns=["files", "subject", "labels", "game", "session"])
+    df_ssl_processed = pd.DataFrame(ssl_processed_files, columns=["files", "subject", "labels", "game", "session"])
 
-                        ssl_split['files'].extend(processed_file_paths_ssl)
+    split_by = pre_processing_cfg.get("split_by", "subject")
+    unique_feat_values = df_processed[split_by].unique()
+    unique_feat_filtered = [feat_value for feat_value in unique_feat_values if feat_value is not None]
+    test_feat_value = np.random.choice(unique_feat_filtered, max(1, int(0.1 * len(unique_feat_filtered))), replace=False)
+    no_test = [feat_value for feat_value in unique_feat_filtered if feat_value not in test_feat_value]
+    val_feat_value = np.random.choice(no_test, max(1, int(0.1 * len(unique_feat_filtered))), replace=False)
+    train_feat_value = [
+        feat_value for feat_value in unique_feat_filtered 
+        if feat_value not in test_feat_value and feat_value not in val_feat_value
+    ]
 
-                if segmented_session is None:
-                    print(f"""Skipping subject {subject_path} session {session}.
-                            Error in pre-processing labeled data: Not enough labeled data""")
-                if get_ssl and segmented_session_ssl is None:
-                    print(f"""Skipping subject {subject_path} session {session}.
-                            Error in pre-processing unlabeled data: Not enough unlabeled data""")
+    train_split_df = df_processed[df_processed[split_by].isin(train_feat_value)]
+    val_split_df = df_processed[df_processed[split_by].isin(val_feat_value)]
+    test_split_df = df_processed[df_processed[split_by].isin(test_feat_value)]
+
+    ssl_train_split_df = df_ssl_processed[
+        df_ssl_processed[split_by].isin(train_feat_value) | df_ssl_processed[split_by].isna()
+    ]
+    ssl_val_split_df = df_ssl_processed[
+        df_ssl_processed[split_by].isin(val_feat_value)
+    ]
+    ssl_test_split_df = df_ssl_processed[
+        df_ssl_processed[split_by].isin(test_feat_value)
+    ]
+
+    train_split = train_split_df.to_dict(orient="records")
+    val_split = val_split_df.to_dict(orient="records")
+    test_split = test_split_df.to_dict(orient="records")
+    ssl_train_split = ssl_train_split_df.to_dict(orient="records")
+    ssl_val_split = ssl_val_split_df.to_dict(orient="records")
+    ssl_test_split = ssl_test_split_df.to_dict(orient="records")
 
     return (
         train_split,
@@ -294,8 +314,8 @@ def process_session(
     if offset_hours_data >= 1:
         data['timestamp_dt'] += pd.Timedelta(hours=offset_hours_data)
     data = data.drop_duplicates()
-    data["label"] = np.nan
     data["interval_num"] = np.nan
+    data["label"] = np.nan
     data = (
         data
         .sort_values(by="timestamp_dt")
@@ -305,10 +325,13 @@ def process_session(
     stack_level_ts = []
     labeled_intervals = deque()
 
+    current_game = None
     # iterate through annotations file to assign labels to level timestamps
     for _, row in annotations.iterrows():
         event_type = row["event_type"]
         info = row["info"]
+        if event_type == "SCENARIO_STARTED":
+            current_game = info
         if event_type == "LEVEL_STARTED":
             # it is not expected to have LEVEL_STARTED two times in a row
             start_ts = row["timestamp_dt"]
@@ -343,7 +366,8 @@ def process_session(
                         last_finished_level_start,
                         last_finished_level_end,
                         label,
-                        row["timestamp_dt"]
+                        row["timestamp_dt"],
+                        current_game
                     )
                 )
 
@@ -352,19 +376,21 @@ def process_session(
     progress_event_first_entry = min(annotations['timestamp_dt']) if annotations.shape[0] > 0 else None
     progress_event_last_entry = max(annotations['timestamp_dt']) if annotations.shape[0] > 0 else None
 
-    start, end, label, _ = labeled_intervals.popleft() if labeled_intervals else (None, None, None, None)
+    start, end, label, _, game_name = labeled_intervals.popleft() if labeled_intervals else (None, None, None, None, None)
     interval_num = 1
 
+    data["game_name"] = None
     # iterate through data (bio-measurements) to assign labels based on intervals
     if None not in [start, end]:
         for idx, row in data.iterrows():
             if start <= row["timestamp_dt"] <= end:
                 data.at[idx, "label"] = label
                 data.at[idx, "interval_num"] = interval_num
+                data.at[idx, "game_name"] = game_name
             elif end < row['timestamp_dt']:
                 if not labeled_intervals:
                     break
-                start, end, label, _ = labeled_intervals.popleft()
+                start, end, label, _, game_name = labeled_intervals.popleft()
                 interval_num += 1
 
     # query labeled data
@@ -418,10 +444,25 @@ def process_session(
         }
         stats = {**stats, **lengths}
 
+    if get_ssl and not labeled_data.empty:
+        ssl_data = data.merge(labeled_data, on=["index"], how="left", suffixes=("", "_r"))
+        columns_left_drop = ["label", "game_name"]
+        columns_right_keep = ["label_r", "game_name_r"]
+        columns_right_drop = [col for col in ssl_data.columns if col.endswith("_r") and col not in columns_right_keep]
+        ssl_data = ssl_data.drop(columns=columns_left_drop + columns_right_drop)
+        ssl_data = ssl_data.rename(columns={"label_r": "label", "game_name_r": "game_name"})
+        # make sure that no data is discarded
+        assert ssl_data[~ssl_data["label"].isna()].equals(labeled_data)
+        assert len(ssl_data) == len(data)
+    elif get_ssl:
+        ssl_data = data
+    else:
+        ssl_data = None
+
     return (
         labeled_data,
         stats if get_stats else None,
-        data if get_ssl else None
+        ssl_data
     )
 
 
@@ -444,13 +485,24 @@ def segment_processed_session(
     intervals = session_df["interval_num"].unique()
     segmented_session = []
     labels = []
+    games = []
     for interval in intervals:
         interval_data = session_df[session_df["interval_num"] == interval]
         unique_labels = interval_data["label"].unique()
+        unique_games = interval_data["game_name"].unique()
         if len(unique_labels) > 1:
             raise ValueError("Found multiple labels per interval")
         label = unique_labels[0]
-        drop_cols = ["index", "timestamp", "updated_timestamp", "timestamp_dt", "label", "interval_num"]
+        game = unique_games[0]
+        drop_cols = [
+            "index",
+            "timestamp",
+            "updated_timestamp",
+            "timestamp_dt",
+            "label",
+            "interval_num",
+            "game_name"
+        ]
         interval_data_sensors = np.array(
             interval_data
             .drop([x for x in drop_cols if x in interval_data.columns], axis=1)
@@ -460,8 +512,8 @@ def segment_processed_session(
             curr_window = interval_data_sensors[i: i + window_length]
             segmented_session.append(curr_window)
             labels.append(label)
-    
-    return np.stack(segmented_session), labels
+            games.append(game)
+    return np.stack(segmented_session), labels, games
 
 
 def segment_processed_session_ssl(
@@ -481,7 +533,15 @@ def segment_processed_session_ssl(
     """
     window_length = int(seq_len * frequency)
     segmented_session = []
-    drop_cols = ["index", "timestamp", "updated_timestamp", "timestamp_dt", "label", "interval_num"]
+    drop_cols = [
+        "index",
+        "timestamp",
+        "updated_timestamp",
+        "timestamp_dt",
+        "label",
+        "interval_num",
+        "game_name"
+    ]
     session_data_sensors = np.array(
         session_df
         .drop([x for x in drop_cols if x in session_df.columns], axis=1)
