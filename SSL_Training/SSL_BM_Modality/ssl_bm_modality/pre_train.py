@@ -1,4 +1,5 @@
 import os
+import json
 
 import torch
 from pytorch_lightning import Trainer
@@ -8,7 +9,9 @@ from conf import (
     MODALITY,
     MODALITY_FOLDER,
     EXPERIMENT_ID,
-    COMPONENT_OUTPUT_FOLDER
+    COMPONENT_OUTPUT_FOLDER,
+    OUTPUTS_FOLDER,
+    EXPERIMENT_RESULTS_FOLDER
 )
 from ssl_dataset import SSLDataModule
 from callbacks.setup_callbacks import setup_callbacks
@@ -105,18 +108,31 @@ def run_pre_training():
     trainer.fit(ssl_model, datamodule)
     metrics = trainer.test(ssl_model, datamodule, ckpt_path='best')
     print(metrics)
+    
+    # Convert tensors to floats for JSON serialization
+    if isinstance(metrics, list) and len(metrics) > 0:
+        metrics = metrics[0]
+    metrics_to_save = {k: v.item() if isinstance(v, torch.Tensor) else v for k, v in metrics.items()}
+    
+    output_dir = EXPERIMENT_RESULTS_FOLDER
+    if os.path.exists(output_dir):
+        print(f"Experiment folder {output_dir} already exists. Overwriting...")
+    output_file = os.path.join(output_dir, f"{EXPERIMENT_ID}_test_metrics_ssl.json")
+    with open(output_file, "w") as f:
+        json.dump(metrics_to_save, f, indent=4)
+    print(f"Test metrics saved to {output_file}")
 
     # if save_last_encoder, the weights of encoder will be taken and saved from the last epoch of ssl pre-training
     if "save_last_encoder" in CUSTOM_SETTINGS[MODALITY]["ssl_config"] and CUSTOM_SETTINGS[MODALITY]["ssl_config"]["save_last_encoder"]:
         ssl_model = ssl_model.__class__.load_from_checkpoint(
-            os.path.join(COMPONENT_OUTPUT_FOLDER, checkpoint_filename + "_last.ckpt"),
+            os.path.join(EXPERIMENT_RESULTS_FOLDER, checkpoint_filename + "_last.ckpt"),
             encoder=encoder
         )
 
     torch.save(
         ssl_model.encoder.state_dict(),
         os.path.join(
-            COMPONENT_OUTPUT_FOLDER,
+            EXPERIMENT_RESULTS_FOLDER,
             f'{checkpoint_filename}_encoder.pt'
         )
     )

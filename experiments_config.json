@@ -1,0 +1,266 @@
+[
+    {
+        "experiment_id": "binary_05_split_by_game_1",
+        "experiment_group": "binary_05_split_by_game_ssl",
+        "description": "Binary split by game - Combination 1 ",
+        "config_updates": {
+            "shimmer.pre_processing_config.split_by": "game",
+            "shimmer.pre_processing_config.game_split.train": [
+                "color_words",
+                "tower_of_hanoi"
+            ],
+            "shimmer.pre_processing_config.game_split.val": [
+                "canvas_painter"
+            ],
+            "shimmer.pre_processing_config.game_split.test": [
+                "cube_stacking"
+            ],
+            "shimmer.pre_processing_config.borders": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    {
+        "experiment_id": "binary_05_split_by_game_2",
+        "experiment_group": "binary_05_split_by_game_ssl",
+        "description": "Binary split by game - Combination 2",
+        "config_updates": {
+            "shimmer.pre_processing_config.split_by": "game",
+            "shimmer.pre_processing_config.game_split.train": [
+                "color_words",
+                "tower_of_hanoi"
+            ],
+            "shimmer.pre_processing_config.game_split.val": [
+                "cube_stacking"
+            ],
+            "shimmer.pre_processing_config.game_split.test": [
+                "canvas_painter"
+            ],
+            "shimmer.pre_processing_config.borders": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    {
+        "experiment_id": "binary_05_split_by_game_3",
+        "experiment_group": "binary_05_split_by_game_ssl",
+        "description": "Binary split by game - Combination 3",
+        "config_updates": {
+            "shimmer.pre_processing_config.split_by": "game",
+            "shimmer.pre_processing_config.game_split.train": [
+                "tower_of_hanoi",
+                "canvas_painter"
+            ],
+            "shimmer.pre_processing_config.game_split.val": [
+                "color_words"
+            ],
+            "shimmer.pre_processing_config.game_split.test": [
+                "cube_stacking"
+            ],
+            "shimmer.pre_processing_config.borders": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    {
+        "experiment_id": "binary_05_split_by_game_4",
+        "experiment_group": "binary_05_split_by_game_ssl",
+        "description": "Binary split by game - Combination 4",
+        "config_updates": {
+            "shimmer.pre_processing_config.split_by": "game",
+            "shimmer.pre_processing_config.game_split.train": [
+                "tower_of_hanoi",
+                "canvas_painter"
+            ],
+            "shimmer.pre_processing_config.game_split.val": [
+                "cube_stacking"
+            ],
+            "shimmer.pre_processing_config.game_split.test": [
+                "color_words"
+            ],
+            "shimmer.pre_processing_config.borders": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    {
+        "experiment_id": "binary_05_split_by_game_5",
+        "experiment_group": "binary_05_split_by_game_ssl",
+        "description": "Binary split by game - Combination 5",
+        "config_updates": {
+            "shimmer.pre_processing_config.split_by": "game",
+            "shimmer.pre_processing_config.game_split.train": [
+                "color_words",
+                "canvas_painter"
+            ],
+            "shimmer.pre_processing_config.game_split.val": [
+                "cube_stacking"
+            ],
+            "shimmer.pre_processing_config.game_split.test": [
+                "tower_of_hanoi"
+            ],
+            "shimmer.pre_processing_config.borders": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    {
+        "experiment_id": "binary_05_split_by_game_6",
+        "experiment_group": "binary_05_split_by_game_ssl",
+        "description": "Binary split by game - Combination 6",
+        "config_updates": {
+            "shimmer.pre_processing_config.split_by": "game",
+            "shimmer.pre_processing_config.game_split.train": [
+                "color_words",
+                "canvas_painter"
+            ],
+            "shimmer.pre_processing_config.game_split.val": [
+                "tower_of_hanoi"
+            ],
+            "shimmer.pre_processing_config.game_split.test": [
+                "cube_stacking"
+            ],
+            "shimmer.pre_processing_config.borders": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    {
+        "experiment_id": "binary_05_split_by_game_7",
+        "experiment_group": "binary_05_split_by_game_ssl",
+        "description": "Binary split by game - Combination 7",
+        "config_updates": {
+            "shimmer.pre_processing_config.split_by": "game",
+            "shimmer.pre_processing_config.game_split.train": [
+                "cube_stacking",
+                "tower_of_hanoi"
+            ],
+            "shimmer.pre_processing_config.game_split.val": [
+                "color_words"
+            ],
+            "shimmer.pre_processing_config.game_split.test": [
+                "canvas_painter"
+            ],
+            "shimmer.pre_processing_config.borders": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    {
+        "experiment_id": "binary_05_split_by_game_8",
+        "experiment_group": "binary_05_split_by_game_ssl",
+        "description": "Binary split by game - Combination 8",
+        "config_updates": {
+            "shimmer.pre_processing_config.split_by": "game",
+            "shimmer.pre_processing_config.game_split.train": [
+                "cube_stacking",
+                "tower_of_hanoi"
+            ],
+            "shimmer.pre_processing_config.game_split.val": [
+                "canvas_painter"
+            ],
+            "shimmer.pre_processing_config.game_split.test": [
+                "color_words"
+            ],
+            "shimmer.pre_processing_config.borders": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    {
+        "experiment_id": "binary_05_split_by_game_9",
+        "experiment_group": "binary_05_split_by_game_ssl",
+        "description": "Binary split by game - Combination 9",
+        "config_updates": {
+            "shimmer.pre_processing_config.split_by": "game",
+            "shimmer.pre_processing_config.game_split.train": [
+                "color_words",
+                "cube_stacking"
+            ],
+            "shimmer.pre_processing_config.game_split.val": [
+                "canvas_painter"
+            ],
+            "shimmer.pre_processing_config.game_split.test": [
+                "tower_of_hanoi"
+            ],
+            "shimmer.pre_processing_config.borders": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    {
+        "experiment_id": "binary_05_split_by_game_10",
+        "experiment_group": "binary_05_split_by_game_ssl",
+        "description": "Binary split by game - Combination 10",
+        "config_updates": {
+            "shimmer.pre_processing_config.split_by": "game",
+            "shimmer.pre_processing_config.game_split.train": [
+                "color_words",
+                "cube_stacking"
+            ],
+            "shimmer.pre_processing_config.game_split.val": [
+                "tower_of_hanoi"
+            ],
+            "shimmer.pre_processing_config.game_split.test": [
+                "canvas_painter"
+            ],
+            "shimmer.pre_processing_config.borders": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    {
+        "experiment_id": "binary_05_split_by_game_11",
+        "experiment_group": "binary_05_split_by_game_ssl",
+        "description": "Binary split by game - Combination 11",
+        "config_updates": {
+            "shimmer.pre_processing_config.split_by": "game",
+            "shimmer.pre_processing_config.game_split.train": [
+                "cube_stacking",
+                "canvas_painter"
+            ],
+            "shimmer.pre_processing_config.game_split.val": [
+                "color_words"
+            ],
+            "shimmer.pre_processing_config.game_split.test": [
+                "tower_of_hanoi"
+            ],
+            "shimmer.pre_processing_config.borders": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    {
+        "experiment_id": "binary_05_split_by_game_12",
+        "experiment_group": "binary_05_split_by_game_ssl",
+        "description": "Binary split by game - Combination 12",
+        "config_updates": {
+            "shimmer.pre_processing_config.split_by": "game",
+            "shimmer.pre_processing_config.game_split.train": [
+                "cube_stacking",
+                "canvas_painter"
+            ],
+            "shimmer.pre_processing_config.game_split.val": [
+                "tower_of_hanoi"
+            ],
+            "shimmer.pre_processing_config.game_split.test": [
+                "color_words"
+            ],
+            "shimmer.pre_processing_config.borders": [
+                0.5,
+                0.5
+            ]
+        }
+    }
+]

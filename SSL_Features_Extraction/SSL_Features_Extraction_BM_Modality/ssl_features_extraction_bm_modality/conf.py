@@ -50,15 +50,3 @@ COMPONENT_OUTPUT_FOLDER = os.path.join(
     MODALITY_FOLDER,
     'ssl_feature_extraction'
 )
-
-
-BM_LABEL_TO_EMOTION = {
-    "01": "BORED",
-    "02": "ENGAGED",
-    "03": "FRUSTRATED"
-}
-BM_EMOTION_TO_LABEL = {
-    "BORED": "01",
-    "ENGAGED": "02",
-    "FRUSTRATED": "03"
-}

@@ -51,21 +51,25 @@ COMPONENT_OUTPUT_FOLDER = os.path.join(
     'supervised_training'
 )
 
-BM_LABEL_TO_EMOTION = {
-    "01": "BORED",
-    "02": "ENGAGED",
-    "03": "FRUSTRATED"
-}
-BM_EMOTION_TO_LABEL = {
-    "BORED": "01",
-    "ENGAGED": "02",
-    "FRUSTRATED": "03"
-}
+EXPERIMENT_RESULTS_FOLDER = os.path.join(
+    OUTPUTS_FOLDER,
+    "individual_experiments",
+    EXPERIMENT_ID
+)
 
-LABEL_TO_ID = {
-    "XRoom": {
-        'BORED': 0,
-        "ENGAGED": 1,
-        "FRUSTRATED": 2
+if MODALITY == "shimmer" and CUSTOM_SETTINGS["shimmer"]["pre_processing_config"]["borders"][0] == CUSTOM_SETTINGS["shimmer"]["pre_processing_config"]["borders"][1]:
+    LABEL_TO_ID = {
+        "XRoom": {
+            'BORED': 0,
+            "FRUSTRATED": 1
     }
-}
+    }
+
+else:
+    LABEL_TO_ID = {
+        "XRoom": {
+            'BORED': 0,
+            "ENGAGED": 1,
+            "FRUSTRATED": 2
+    }
+    }

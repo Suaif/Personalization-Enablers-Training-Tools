@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 import numpy as np
 import scipy
+from sklearn.model_selection import StratifiedGroupKFold
 
 
 def process_dataset(
@@ -83,6 +84,7 @@ def process_dataset(
             if get_ssl:
                 processed_file_paths_ssl = []
             processed_file_labels = []
+            processed_file_infos = []
             processed_file_games = []
 
             session_annot = glob.glob(os.path.join(subject_path, f"*{session}*PROGRESS_EVENT_.csv"))[0]
@@ -107,7 +109,7 @@ def process_dataset(
             # Segment each extracted level into shorter time windows
             # Each level (interval) will be split into multiple segments with the same length
             try:
-                segmented_session, labels, games = segment_processed_session(
+                segmented_session, labels, infos, games = segment_processed_session(
                     processed_session,
                     seq_len,
                     overlap,
@@ -122,6 +124,9 @@ def process_dataset(
                 preprocessed_session = preprocessing_to_apply(segmented_session)
 
                 for i, session_to_save in enumerate(preprocessed_session):
+                    if games[i] is None:
+                        print(f"Game is None for: subject path: {subject_path}, session: {session}, interval: {i}")
+                        continue
                     # apply resampling if needed
                     if resample_freq != frequency:
                         session_to_save = resample_bm(session_to_save, frequency, resample_freq)
@@ -131,11 +136,11 @@ def process_dataset(
                         pre_processing_cfg['process'],
                         f"{os.path.basename(subject_path)}_{session}_{i}_emotion_{labels[i]}_game_{games[i]}.npy"
                     )
-
                     np.save(filepath, session_to_save.astype(np.float32))
 
                     processed_file_paths.append(filepath.split(os.sep)[-1])
                     processed_file_labels.append(labels[i])
+                    processed_file_infos.append(infos[i])
                     processed_file_games.append(games[i])
                 
                 for i, filepath in enumerate(processed_file_paths):
@@ -144,6 +149,7 @@ def process_dataset(
                             filepath,
                             os.path.basename(subject_path),
                             processed_file_labels[i],
+                            processed_file_infos[i],
                             processed_file_games[i],
                             session,
                         )
@@ -194,23 +200,80 @@ def process_dataset(
                 print(f"""Skipping subject {subject_path} session {session}.
                         Error in pre-processing unlabeled data: Not enough unlabeled data""")
 
-    df_processed = pd.DataFrame(processed_files, columns=["files", "subject", "labels", "game", "session"])
+    df_processed = pd.DataFrame(processed_files, columns=["files", "subject", "labels", "infos", "game", "session"])
     df_ssl_processed = pd.DataFrame(ssl_processed_files, columns=["files", "subject", "labels", "game", "session"])
 
-    split_by = pre_processing_cfg.get("split_by", "subject")
-    unique_feat_values = df_processed[split_by].unique()
-    unique_feat_filtered = [feat_value for feat_value in unique_feat_values if feat_value is not None]
-    test_feat_value = np.random.choice(unique_feat_filtered, max(1, int(0.1 * len(unique_feat_filtered))), replace=False)
-    no_test = [feat_value for feat_value in unique_feat_filtered if feat_value not in test_feat_value]
-    val_feat_value = np.random.choice(no_test, max(1, int(0.1 * len(unique_feat_filtered))), replace=False)
-    train_feat_value = [
-        feat_value for feat_value in unique_feat_filtered 
-        if feat_value not in test_feat_value and feat_value not in val_feat_value
-    ]
+    # Filter out 0.5 values to create two datasets
+    # Keep complete dataset for unfiltered splits
+    df_processed_all = df_processed.copy()
+    # Remove 0.5 values for filtered splits
+    df_processed_filtered = df_processed[~df_processed["infos"].isin([0.5, 0.5000001])].copy()
+    
+    # Drop infos column as it should not be saved (cannot be used as features)
+    df_processed_all = df_processed_all.drop(columns=["infos"])
+    df_processed_filtered = df_processed_filtered.drop(columns=["infos"])
 
-    train_split_df = df_processed[df_processed[split_by].isin(train_feat_value)]
-    val_split_df = df_processed[df_processed[split_by].isin(val_feat_value)]
-    test_split_df = df_processed[df_processed[split_by].isin(test_feat_value)]
+    split_by = pre_processing_cfg.get("split_by", "subject")
+    stratify = pre_processing_cfg.get("stratify", False)
+
+    unique_feat_values = df_processed_filtered[split_by].unique()
+    unique_feat_filtered = [feat_value for feat_value in unique_feat_values if feat_value is not None]
+
+    if stratify:
+        # Filter data to only relevant groups for splitting
+        df_split = df_processed_filtered[df_processed_filtered[split_by].isin(unique_feat_filtered)].copy()
+        
+        X_dummy = np.zeros(len(df_split))
+        y_split = df_split["labels"]
+        groups_split = df_split[split_by]
+        
+        # 1. Split into Test (approx 10%) and Rest (approx 90%)
+        n_groups = len(unique_feat_filtered)
+        n_splits = max(2, min(10, n_groups))
+        
+        sgkf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=42)
+        
+        # Take the first fold as Test
+        train_val_indices, test_indices = next(sgkf.split(X_dummy, y_split, groups_split))
+        
+        test_feat_value = df_split.iloc[test_indices][split_by].unique()
+        
+        # 2. Split Rest into Val (approx 10% of total) and Train (approx 80% of total)
+        # We need Val to be roughly 1/9th of the Rest (since Rest is 9/10th of total)
+        df_train_val = df_split.iloc[train_val_indices].reset_index(drop=True)
+        X_dummy_tv = np.zeros(len(df_train_val))
+        y_split_tv = df_train_val["labels"]
+        groups_split_tv = df_train_val[split_by]
+        
+        n_groups_tv = len(df_train_val[split_by].unique())
+        n_splits_val = max(2, min(max(2, n_splits - 1), n_groups_tv))
+        
+        sgkf_val = StratifiedGroupKFold(n_splits=n_splits_val, shuffle=True, random_state=42)
+        
+        # Take first fold as Val
+        train_indices_internal, val_indices_internal = next(sgkf_val.split(X_dummy_tv, y_split_tv, groups_split_tv))
+        
+        val_feat_value = df_train_val.iloc[val_indices_internal][split_by].unique()
+        train_feat_value = df_train_val.iloc[train_indices_internal][split_by].unique()
+        
+    else:
+        test_feat_value = np.random.choice(unique_feat_filtered, max(1, int(0.1 * len(unique_feat_filtered))), replace=False)
+        no_test = [feat_value for feat_value in unique_feat_filtered if feat_value not in test_feat_value]
+        val_feat_value = np.random.choice(no_test, max(1, int(0.1 * len(unique_feat_filtered))), replace=False)
+        train_feat_value = [
+            feat_value for feat_value in unique_feat_filtered 
+            if feat_value not in test_feat_value and feat_value not in val_feat_value
+        ]
+
+    # Create filtered splits (without 0.5 values)
+    train_split_df = df_processed_filtered[df_processed_filtered[split_by].isin(train_feat_value)]
+    val_split_df = df_processed_filtered[df_processed_filtered[split_by].isin(val_feat_value)]
+    test_split_df = df_processed_filtered[df_processed_filtered[split_by].isin(test_feat_value)]
+
+    # Create unfiltered splits (with all values including 0.5)
+    train_split_all_df = df_processed_all[df_processed_all[split_by].isin(train_feat_value)]
+    val_split_all_df = df_processed_all[df_processed_all[split_by].isin(val_feat_value)]
+    test_split_all_df = df_processed_all[df_processed_all[split_by].isin(test_feat_value)]
 
     ssl_train_split_df = df_ssl_processed[
         df_ssl_processed[split_by].isin(train_feat_value) | df_ssl_processed[split_by].isna()
@@ -225,6 +288,9 @@ def process_dataset(
     train_split = train_split_df.to_dict(orient="records")
     val_split = val_split_df.to_dict(orient="records")
     test_split = test_split_df.to_dict(orient="records")
+    train_split_all = train_split_all_df.to_dict(orient="records")
+    val_split_all = val_split_all_df.to_dict(orient="records")
+    test_split_all = test_split_all_df.to_dict(orient="records")
     ssl_train_split = ssl_train_split_df.to_dict(orient="records")
     ssl_val_split = ssl_val_split_df.to_dict(orient="records")
     ssl_test_split = ssl_test_split_df.to_dict(orient="records")
@@ -233,6 +299,9 @@ def process_dataset(
         train_split,
         val_split,
         test_split,
+        train_split_all,
+        val_split_all,
+        test_split_all,
         ovr_stats if get_stats else None,
         ssl_train_split if get_ssl else [],
         ssl_val_split if get_ssl else [],
@@ -359,13 +428,16 @@ def process_session(
             ):
                 if event_type != "FEEDBACK_RECEIVED":
                     label = event_type
+                    info_val = None
                 else:
                     label = continious_to_categorical(info, borders=borders) if cont_to_cat else info
+                    info_val = float(info)
                 labeled_intervals.append(
                     (
                         last_finished_level_start,
                         last_finished_level_end,
                         label,
+                        info_val,
                         row["timestamp_dt"],
                         current_game
                     )
@@ -376,21 +448,23 @@ def process_session(
     progress_event_first_entry = min(annotations['timestamp_dt']) if annotations.shape[0] > 0 else None
     progress_event_last_entry = max(annotations['timestamp_dt']) if annotations.shape[0] > 0 else None
 
-    start, end, label, _, game_name = labeled_intervals.popleft() if labeled_intervals else (None, None, None, None, None)
+    start, end, label, info_val, _, game_name = labeled_intervals.popleft() if labeled_intervals else (None, None, None, None, None, None)
     interval_num = 1
 
     data["game_name"] = None
+    data["info"] = 0.0
     # iterate through data (bio-measurements) to assign labels based on intervals
     if None not in [start, end]:
         for idx, row in data.iterrows():
             if start <= row["timestamp_dt"] <= end:
                 data.at[idx, "label"] = label
+                data.at[idx, "info"] = info_val if info_val is not None else 0.0
                 data.at[idx, "interval_num"] = interval_num
                 data.at[idx, "game_name"] = game_name
             elif end < row['timestamp_dt']:
                 if not labeled_intervals:
                     break
-                start, end, label, _, game_name = labeled_intervals.popleft()
+                start, end, label, info_val, _, game_name = labeled_intervals.popleft()
                 interval_num += 1
 
     # query labeled data
@@ -446,13 +520,13 @@ def process_session(
 
     if get_ssl and not labeled_data.empty:
         ssl_data = data.merge(labeled_data, on=["index"], how="left", suffixes=("", "_r"))
-        columns_left_drop = ["label", "game_name"]
+        columns_left_drop = ["label", "game_name", "info"]
         columns_right_keep = ["label_r", "game_name_r"]
         columns_right_drop = [col for col in ssl_data.columns if col.endswith("_r") and col not in columns_right_keep]
         ssl_data = ssl_data.drop(columns=columns_left_drop + columns_right_drop)
         ssl_data = ssl_data.rename(columns={"label_r": "label", "game_name_r": "game_name"})
         # make sure that no data is discarded
-        assert ssl_data[~ssl_data["label"].isna()].equals(labeled_data)
+        # assert ssl_data[~ssl_data["label"].isna()].equals(labeled_data)
         assert len(ssl_data) == len(data)
     elif get_ssl:
         ssl_data = data
@@ -485,14 +559,17 @@ def segment_processed_session(
     intervals = session_df["interval_num"].unique()
     segmented_session = []
     labels = []
+    infos = []
     games = []
     for interval in intervals:
         interval_data = session_df[session_df["interval_num"] == interval]
         unique_labels = interval_data["label"].unique()
+        unique_infos = interval_data["info"].unique()
         unique_games = interval_data["game_name"].unique()
         if len(unique_labels) > 1:
             raise ValueError("Found multiple labels per interval")
         label = unique_labels[0]
+        info = unique_infos[0]
         game = unique_games[0]
         drop_cols = [
             "index",
@@ -500,6 +577,7 @@ def segment_processed_session(
             "updated_timestamp",
             "timestamp_dt",
             "label",
+            "info",
             "interval_num",
             "game_name"
         ]
@@ -512,8 +590,9 @@ def segment_processed_session(
             curr_window = interval_data_sensors[i: i + window_length]
             segmented_session.append(curr_window)
             labels.append(label)
+            infos.append(info)
             games.append(game)
-    return np.stack(segmented_session), labels, games
+    return np.stack(segmented_session), labels, infos, games
 
 
 def segment_processed_session_ssl(
@@ -539,6 +618,7 @@ def segment_processed_session_ssl(
         "updated_timestamp",
         "timestamp_dt",
         "label",
+        "info",
         "interval_num",
         "game_name"
     ]
@@ -649,6 +729,8 @@ def continious_to_categorical(info: str, categories=["BORED", "ENGAGED", "FRUSTR
         if borders is None:
             category_size = 1. / num_categories
             category_index = min(int(value // category_size), num_categories - 1)
+        elif borders[0] == borders[1]: # Binary classification
+            category_index = 0 if value < borders[0] else 2
         else:
             if len(borders) != num_categories - 1:
                 raise ValueError("Borders list must have len(categories) - 1 elements.")

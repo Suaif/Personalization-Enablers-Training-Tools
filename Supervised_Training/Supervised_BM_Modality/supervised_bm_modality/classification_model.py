@@ -1,5 +1,6 @@
 from typing import List, Optional, Union
 
+import pandas as pd
 import torch
 from pytorch_lightning import LightningModule
 
@@ -69,6 +70,13 @@ class SupervisedModel(LightningModule):
         self.log(f"{prefix}loss", loss, prog_bar=True)
         preds = torch.argmax(out, dim=1)
         return {f"{prefix}loss": loss, "preds": preds}
+    
+    def predict_step(self, batch, batch_idx):
+        """Prediction step for trainer.predict()"""
+        X, Y = batch[0], batch[1]
+        out = self(X)
+        preds = torch.argmax(out, dim=1)
+        return {"preds": preds, "labels": Y}
 
     def configure_optimizers(self):
         return self._initialize_optimizer()
@@ -84,3 +92,42 @@ class SupervisedModel(LightningModule):
                     "monitor": 'train_loss'
                 }
             }
+    
+    @staticmethod
+    def predictions_to_dataframe(predictions):
+        """Convert prediction results to a pandas DataFrame
+        
+        Args:
+            predictions: List of dicts from trainer.predict(), each containing 'preds' and 'labels'
+        
+        Returns:
+            DataFrame with 'true_label' and 'predicted_label' columns
+        """
+        all_preds = []
+        all_labels = []
+        
+        for batch_result in predictions:
+            all_preds.append(batch_result['preds'].cpu())
+            all_labels.append(batch_result['labels'].cpu())
+        
+        preds = torch.cat(all_preds).numpy()
+        labels = torch.cat(all_labels).numpy()
+        
+        df = pd.DataFrame({
+            'true_label': labels,
+            'predicted_label': preds
+        })
+        return df
+    
+    @staticmethod
+    def save_predictions_csv(predictions, filepath, split_name=''):
+        """Save predictions to CSV file
+        
+        Args:
+            predictions: List of dicts from trainer.predict()
+            filepath: Path where to save the CSV file
+            split_name: Name of the split (for logging purposes)
+        """
+        df = SupervisedModel.predictions_to_dataframe(predictions)
+        df.to_csv(filepath, index=False)
+        print(f"Saved {split_name} predictions to {filepath} ({len(df)} samples)")

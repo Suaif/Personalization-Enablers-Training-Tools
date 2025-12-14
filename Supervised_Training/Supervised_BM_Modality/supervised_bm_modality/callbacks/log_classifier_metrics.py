@@ -1,4 +1,7 @@
 from typing import Any, Dict, List, Tuple
+import json
+import os
+from conf import EXPERIMENT_ID, EXPERIMENT_RESULTS_FOLDER
 
 import pytorch_lightning as pl
 from torch import nn
@@ -110,4 +113,14 @@ class LogClassifierMetrics(pl.Callback):
             trainer: pl.Trainer,
             pl_module: pl.LightningModule
     ) -> None:
-        self._shared_eval(pl_module, "test")
+        metrics = self._shared_eval(pl_module, "test")
+        
+        # Save metrics to JSON file
+        metrics_to_save = {k: v.item() if isinstance(v, torch.Tensor) else v for k, v in metrics.items()}
+        
+        output_dir = EXPERIMENT_RESULTS_FOLDER + "/"
+        os.makedirs(output_dir, exist_ok=True)
+        output_file = os.path.join(output_dir, f"{EXPERIMENT_ID}_test_metrics_supervised.json")
+        with open(output_file, "w") as f:
+            json.dump(metrics_to_save, f, indent=4)
+        print(f"Test metrics saved to {output_file}")
