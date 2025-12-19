@@ -6,6 +6,7 @@ from decouple import config
 import os
 import pathlib
 import json
+import re
 
 MAIN_FOLDER_DEFAULT = pathlib.Path(__file__).parent.parent.absolute()
 MAIN_FOLDER = config('MAIN_FOLDER', default=MAIN_FOLDER_DEFAULT)
@@ -28,11 +29,16 @@ CUSTOM_SETTINGS = {
 }
 
 path_custom_settings = os.path.join(MAIN_FOLDER, 'configuration.json')
+def strip_json_comments(text):
+    """Strip C-style comments from JSON text."""
+    pattern = r'//.*?$|/\*.*?\*/'
+    return re.sub(pattern, '', text, flags=re.DOTALL | re.MULTILINE)
 PATH_CUSTOM_SETTINGS = config('PATH_CUSTOM_SETTINGS', default=path_custom_settings)
 if os.path.exists(PATH_CUSTOM_SETTINGS):
     with open(PATH_CUSTOM_SETTINGS, 'r') as f:
-        CUSTOM_SETTINGS = json.load(f)
-
+        content = f.read()
+        cleaned_content = strip_json_comments(content)
+        CUSTOM_SETTINGS = json.loads(cleaned_content)
 
 DATA_PATH = os.path.join(DATASETS_FOLDER, CUSTOM_SETTINGS["dataset_config"]["dataset_name"])
 # Define components outputs folder

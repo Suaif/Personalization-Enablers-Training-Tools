@@ -127,6 +127,9 @@ def process_dataset(
                     if games[i] is None:
                         print(f"Game is None for: subject path: {subject_path}, session: {session}, interval: {i}")
                         continue
+                    # # FILTERING TESTS
+                    # if games[i] != "canvas_painter":
+                    #     continue
                     # apply resampling if needed
                     if resample_freq != frequency:
                         session_to_save = resample_bm(session_to_save, frequency, resample_freq)
@@ -203,25 +206,26 @@ def process_dataset(
     df_processed = pd.DataFrame(processed_files, columns=["files", "subject", "labels", "infos", "game", "session"])
     df_ssl_processed = pd.DataFrame(ssl_processed_files, columns=["files", "subject", "labels", "game", "session"])
 
-    # Filter out 0.5 values to create two datasets
-    # Keep complete dataset for unfiltered splits
-    df_processed_all = df_processed.copy()
-    # Remove 0.5 values for filtered splits
-    df_processed_filtered = df_processed[~df_processed["infos"].isin([0.5, 0.5000001])].copy()
-    
+    # Filter out 0.5 values if configured
+    filter_05 = pre_processing_cfg.get("filter_05", False)
+    if filter_05:
+        df_processed = df_processed[~df_processed["infos"].isin([0.5, 0.5000001])].copy()
+
     # Drop infos column as it should not be saved (cannot be used as features)
-    df_processed_all = df_processed_all.drop(columns=["infos"])
-    df_processed_filtered = df_processed_filtered.drop(columns=["infos"])
+    df_processed = df_processed.drop(columns=["infos"])
+
+    # FILTERING TESTS
+    # df_processed = df_processed[df_processed["game"] == "canvas_painter"].copy()
 
     split_by = pre_processing_cfg.get("split_by", "subject")
     stratify = pre_processing_cfg.get("stratify", False)
 
-    unique_feat_values = df_processed_filtered[split_by].unique()
+    unique_feat_values = df_processed[split_by].unique()
     unique_feat_filtered = [feat_value for feat_value in unique_feat_values if feat_value is not None]
 
     if stratify:
         # Filter data to only relevant groups for splitting
-        df_split = df_processed_filtered[df_processed_filtered[split_by].isin(unique_feat_filtered)].copy()
+        df_split = df_processed[df_processed[split_by].isin(unique_feat_filtered)].copy()
         
         X_dummy = np.zeros(len(df_split))
         y_split = df_split["labels"]
@@ -265,15 +269,10 @@ def process_dataset(
             if feat_value not in test_feat_value and feat_value not in val_feat_value
         ]
 
-    # Create filtered splits (without 0.5 values)
-    train_split_df = df_processed_filtered[df_processed_filtered[split_by].isin(train_feat_value)]
-    val_split_df = df_processed_filtered[df_processed_filtered[split_by].isin(val_feat_value)]
-    test_split_df = df_processed_filtered[df_processed_filtered[split_by].isin(test_feat_value)]
-
-    # Create unfiltered splits (with all values including 0.5)
-    train_split_all_df = df_processed_all[df_processed_all[split_by].isin(train_feat_value)]
-    val_split_all_df = df_processed_all[df_processed_all[split_by].isin(val_feat_value)]
-    test_split_all_df = df_processed_all[df_processed_all[split_by].isin(test_feat_value)]
+    # Create splits
+    train_split_df = df_processed[df_processed[split_by].isin(train_feat_value)]
+    val_split_df = df_processed[df_processed[split_by].isin(val_feat_value)]
+    test_split_df = df_processed[df_processed[split_by].isin(test_feat_value)]
 
     ssl_train_split_df = df_ssl_processed[
         df_ssl_processed[split_by].isin(train_feat_value) | df_ssl_processed[split_by].isna()
@@ -288,9 +287,6 @@ def process_dataset(
     train_split = train_split_df.to_dict(orient="records")
     val_split = val_split_df.to_dict(orient="records")
     test_split = test_split_df.to_dict(orient="records")
-    train_split_all = train_split_all_df.to_dict(orient="records")
-    val_split_all = val_split_all_df.to_dict(orient="records")
-    test_split_all = test_split_all_df.to_dict(orient="records")
     ssl_train_split = ssl_train_split_df.to_dict(orient="records")
     ssl_val_split = ssl_val_split_df.to_dict(orient="records")
     ssl_test_split = ssl_test_split_df.to_dict(orient="records")
@@ -299,9 +295,6 @@ def process_dataset(
         train_split,
         val_split,
         test_split,
-        train_split_all,
-        val_split_all,
-        test_split_all,
         ovr_stats if get_stats else None,
         ssl_train_split if get_ssl else [],
         ssl_val_split if get_ssl else [],
@@ -374,7 +367,7 @@ def process_session(
         )
     # Current version of Magic XRoom uses C# timestamp as 'timestamp' column
     #   and internal UNIX timestamps as 'timestamp_int' column
-    except ValueError:
+    except (ValueError, OSError):
         data["timestamp_dt"] = (
             data["timestamp"]
             .apply(lambda x: datetime.datetime(1, 1, 1) + datetime.timedelta(microseconds=x // 10))
@@ -429,6 +422,8 @@ def process_session(
                 if event_type != "FEEDBACK_RECEIVED":
                     label = event_type
                     info_val = None
+                # elif float(info) in [0.5, 0.5000001]:
+                #     continue
                 else:
                     label = continious_to_categorical(info, borders=borders) if cont_to_cat else info
                     info_val = float(info)

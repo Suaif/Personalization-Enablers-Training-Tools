@@ -130,4 +130,4 @@ class SupervisedModel(LightningModule):
         """
         df = SupervisedModel.predictions_to_dataframe(predictions)
         df.to_csv(filepath, index=False)
-        print(f"Saved {split_name} predictions to {filepath} ({len(df)} samples)")
+        # print(f"Saved {split_name} predictions to {filepath} ({len(df)} samples)")

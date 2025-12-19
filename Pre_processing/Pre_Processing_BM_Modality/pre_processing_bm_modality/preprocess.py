@@ -20,7 +20,6 @@ def preprocess():
     print(f"Found a total of {len(all_subject_dirs)} under {DATA_PATH}.")
 
     (train_split, val_split, test_split, 
-     train_split_all, val_split_all, test_split_all,
      stats, ssl_train_split, ssl_val_split, ssl_test_split) = process_dataset(
         DATA_PATH,
         all_subject_dirs,
@@ -70,53 +69,17 @@ def preprocess():
         )
     )
 
-    # Save unfiltered datasets (with all values including 0.5)
-    train_all_df = pd.DataFrame.from_dict(train_split_all)
-    val_all_df = pd.DataFrame.from_dict(val_split_all)
-    test_all_df = pd.DataFrame.from_dict(test_split_all)
-    
-    train_all_df.to_csv(
-        os.path.join(
-            MODALITY_FOLDER,
-            'train_all.csv'
-        )
-    )
-    val_all_df.to_csv(
-        os.path.join(
-            MODALITY_FOLDER,
-            'val_all.csv'
-        )
-    )
-    test_all_df.to_csv(
-        os.path.join(
-            MODALITY_FOLDER,
-            'test_all.csv'
-        )
-    )
-    
     # Print detailed statistics
     print('\n' + '='*80)
     print('PREPROCESSING SUMMARY')
     print('='*80)
     
-    print('\n📊 SUPERVISED DATASETS (Labeled data only):')
+    print('\n📊 SUPERVISED DATASETS (Labeled data):')
     print('-' * 80)
-    print(f'  Filtered (without 0.5 values):')
     print(f'    train.csv:      {len(train_df):5d} samples')
     print(f'    val.csv:        {len(val_df):5d} samples')
     print(f'    test.csv:       {len(test_df):5d} samples')
     print(f'    TOTAL:          {len(train_df) + len(val_df) + len(test_df):5d} samples')
-    
-    print(f'\n  Complete (with all values including 0.5):')
-    print(f'    train_all.csv:  {len(train_all_df):5d} samples')
-    print(f'    val_all.csv:    {len(val_all_df):5d} samples')
-    print(f'    test_all.csv:   {len(test_all_df):5d} samples')
-    print(f'    TOTAL:          {len(train_all_df) + len(val_all_df) + len(test_all_df):5d} samples')
-    
-    print(f'\n  Filtered out (0.5 values):')
-    print(f'    train:          {len(train_all_df) - len(train_df):5d} samples ({100*(len(train_all_df) - len(train_df))/len(train_all_df) if len(train_all_df) > 0 else 0:.1f}%)')
-    print(f'    val:            {len(val_all_df) - len(val_df):5d} samples ({100*(len(val_all_df) - len(val_df))/len(val_all_df) if len(val_all_df) > 0 else 0:.1f}%)')
-    print(f'    test:           {len(test_all_df) - len(test_df):5d} samples ({100*(len(test_all_df) - len(test_df))/len(test_all_df) if len(test_all_df) > 0 else 0:.1f}%)')
 
     if (
         "get_ssl" in CUSTOM_SETTINGS[MODALITY]["pre_processing_config"] and
@@ -154,10 +117,10 @@ def preprocess():
         print(f'    ssl_test.csv:   {len(ssl_test_df):5d} samples')
         print(f'    TOTAL:          {len(ssl_train_df) + len(ssl_val_df) + len(ssl_test_df):5d} samples')
         
-        print(f'\n  Comparison (SSL vs Complete supervised):')
-        print(f'    train (SSL - Complete):  {len(ssl_train_df) - len(train_all_df):5d} unlabeled samples')
-        print(f'    val   (SSL - Complete):  {len(ssl_val_df) - len(val_all_df):5d} unlabeled samples')
-        print(f'    test  (SSL - Complete):  {len(ssl_test_df) - len(test_all_df):5d} unlabeled samples')
+        print(f'\n  Comparison (SSL vs Supervised):')
+        print(f'    train (SSL - Sup):       {len(ssl_train_df) - len(train_df):5d} unlabeled samples')
+        print(f'    val   (SSL - Sup):       {len(ssl_val_df) - len(val_df):5d} unlabeled samples')
+        print(f'    test  (SSL - Sup):       {len(ssl_test_df) - len(test_df):5d} unlabeled samples')
     
     print('\n' + '='*80)
 

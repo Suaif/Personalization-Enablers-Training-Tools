@@ -108,6 +108,11 @@ def run_supervised_training():
         max_epochs=CUSTOM_SETTINGS[MODALITY]['sup_config']['epochs']
     )
 
+    if os.path.exists(EXPERIMENT_RESULTS_FOLDER):
+        print(f"Experiment folder {EXPERIMENT_RESULTS_FOLDER} already exists. Overwriting...")
+    else:
+        os.makedirs(EXPERIMENT_RESULTS_FOLDER)
+    
     # train model and report metrics
     # the model checkpoints (best and last if provided) will be saved in
     # /COMPONENT_OUTPUT_FOLDER/{EXPERIMENT_ID}_model_lightning.ckpt
@@ -115,17 +120,7 @@ def run_supervised_training():
 
     # evaluate model on the test set, by default the best model
     trainer.test(model, datamodule, ckpt_path="best")
-
-    print(f"[DEBUG] AFTER TEST: Directory contents of {EXPERIMENT_RESULTS_FOLDER}:")
-    if os.path.exists(EXPERIMENT_RESULTS_FOLDER):
-        print(os.listdir(EXPERIMENT_RESULTS_FOLDER))
-    else:
-        print(f"[DEBUG] Directory {EXPERIMENT_RESULTS_FOLDER} does not exist.")
-
-    if os.path.exists(EXPERIMENT_RESULTS_FOLDER):
-        print(f"Experiment folder {EXPERIMENT_RESULTS_FOLDER} already exists. Overwriting...")
-        
-    os.makedirs(EXPERIMENT_RESULTS_FOLDER, exist_ok=True)
+    
     # save weights of the classifier independently for future use with SSL features
     torch.save(
         classifier.state_dict(),
@@ -287,18 +282,8 @@ def run_supervised_training():
     plt.tight_layout()
     output_plot_path = os.path.join(EXPERIMENT_RESULTS_FOLDER, 'predictions_histogram.png')
     plt.savefig(output_plot_path)
-    print(f"Saved predictions diagram to {output_plot_path}")    # Re-save the metrics file to ensure it syncs to the host (workaround for Docker volume sync issues)
-    # validation_metrics_file = os.path.join(EXPERIMENT_RESULTS_FOLDER, f"{EXPERIMENT_ID}_test_metrics_supervised.json")
-    # if os.path.exists(validation_metrics_file):
-    #     try:
-    #         with open(validation_metrics_file, 'r') as f:
-    #             metrics_data = json.load(f)
-            
-    #         with open(validation_metrics_file, 'w') as f:
-    #             json.dump(metrics_data, f, indent=4)
-    #         print(f"Metrics file re-saved successfully by main process: {validation_metrics_file}")
-    #     except Exception as e:
-    #         print(f"Error re-saving metrics file: {e}")
+    
+    print(f"Experiment {EXPERIMENT_ID} finished, results saved to: {EXPERIMENT_RESULTS_FOLDER}")
     
 if __name__ == '__main__':
     run_supervised_training()

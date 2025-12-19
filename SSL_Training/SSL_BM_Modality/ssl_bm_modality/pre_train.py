@@ -117,6 +117,8 @@ def run_pre_training():
     output_dir = EXPERIMENT_RESULTS_FOLDER
     if os.path.exists(output_dir):
         print(f"Experiment folder {output_dir} already exists. Overwriting...")
+    else:
+        os.makedirs(output_dir)
     output_file = os.path.join(output_dir, f"{EXPERIMENT_ID}_test_metrics_ssl.json")
     with open(output_file, "w") as f:
         json.dump(metrics_to_save, f, indent=4)
@@ -129,6 +131,13 @@ def run_pre_training():
             encoder=encoder
         )
 
+    torch.save(
+        ssl_model.encoder.state_dict(),
+        os.path.join(
+            COMPONENT_OUTPUT_FOLDER,
+            f'{checkpoint_filename}_encoder.pt'
+        )
+    )
     torch.save(
         ssl_model.encoder.state_dict(),
         os.path.join(
