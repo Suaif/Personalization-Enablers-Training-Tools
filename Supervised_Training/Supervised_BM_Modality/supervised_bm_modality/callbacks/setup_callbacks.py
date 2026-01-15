@@ -104,7 +104,7 @@ def setup_early_stopping_callback(
 
 def setup_classifier_metrics_logger(
         num_classes,
-        metric_names=['accuracy', 'f1-score-macro', 'f1-score-micro', 'f1-score-weighted', 'precision', 'recall'],
+        metric_names=['accuracy', 'balanced-accuracy', 'f1-score-macro', 'f1-score-micro', 'f1-score-weighted', 'precision', 'recall'],
         average='macro'
 ):
     """ Setup classifier metrics
@@ -114,7 +114,7 @@ def setup_classifier_metrics_logger(
     num_classes : int
         number of classes
     metric_names : list, optional
-        metrics to log, by default ['accuracy', 'f1-score','f1-score-micro','f1-score-weighted', 'precision', 'recall']
+        metrics to log, by default ['accuracy', 'balanced-accuracy', 'f1-score-macro', 'f1-score-micro', 'f1-score-weighted', 'precision', 'recall']
     average : str, optional
         type of averaging, by default 'macro'
 

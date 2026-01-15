@@ -45,7 +45,7 @@ def preprocess():
         stats_df.to_csv(os.path.join(MODALITY_FOLDER, "stats_biomeasurements.csv"), index=None)
 
     print('Writing CSV files containing the splits to storage')
-    # Save filtered datasets (without 0.5 values)
+
     train_df = pd.DataFrame.from_dict(train_split)
     val_df = pd.DataFrame.from_dict(val_split)
     test_df = pd.DataFrame.from_dict(test_split)
@@ -116,20 +116,15 @@ def preprocess():
         print(f'    ssl_val.csv:    {len(ssl_val_df):5d} samples')
         print(f'    ssl_test.csv:   {len(ssl_test_df):5d} samples')
         print(f'    TOTAL:          {len(ssl_train_df) + len(ssl_val_df) + len(ssl_test_df):5d} samples')
-        
-        print(f'\n  Comparison (SSL vs Supervised):')
-        print(f'    train (SSL - Sup):       {len(ssl_train_df) - len(train_df):5d} unlabeled samples')
-        print(f'    val   (SSL - Sup):       {len(ssl_val_df) - len(val_df):5d} unlabeled samples')
-        print(f'    test  (SSL - Sup):       {len(ssl_test_df) - len(test_df):5d} unlabeled samples')
     
     print('\n' + '='*80)
 
     # Clean EXPERIMENT_RESULTS_FOLDER
     if os.path.exists(EXPERIMENT_RESULTS_FOLDER):
         print(f"Experiment folder {EXPERIMENT_RESULTS_FOLDER} already exists. Overwriting...")
-        shutil.rmtree(EXPERIMENT_RESULTS_FOLDER)
+        # shutil.rmtree(EXPERIMENT_RESULTS_FOLDER)
     
-    os.makedirs(EXPERIMENT_RESULTS_FOLDER)
+    os.makedirs(EXPERIMENT_RESULTS_FOLDER, exist_ok=True)
 
 if __name__ == '__main__':
     preprocess()

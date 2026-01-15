@@ -20,7 +20,7 @@ class LogClassifierMetrics(pl.Callback):
             self,
             num_classes: int,
             metric_names: List[str] = [
-                'accuracy', 'f1-score-macro', 'f1-score-micro', 'f1-score-weighted', 'precision', 'recall'
+                'accuracy', 'balanced-accuracy', 'f1-score-macro', 'f1-score-micro', 'f1-score-weighted', 'precision', 'recall'
             ],
             average: str = 'macro',
     ):
@@ -36,6 +36,7 @@ class LogClassifierMetrics(pl.Callback):
         self.task = 'binary' if num_classes <= 2 else 'multiclass'
         self.metric_dict = nn.ModuleDict({
             'accuracy': torchmetrics.Accuracy(num_classes=num_classes, task=self.task),
+            'balanced-accuracy': torchmetrics.Accuracy(num_classes=num_classes, task=self.task, average='macro'),
             'f1-score-macro': torchmetrics.F1Score(num_classes=num_classes, task=self.task, average='macro'),
             'f1-score-micro': torchmetrics.F1Score(num_classes=num_classes, task=self.task, average='micro'),
             'f1-score-weighted': torchmetrics.F1Score(num_classes=num_classes, task=self.task, average='weighted'),

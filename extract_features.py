@@ -94,22 +94,16 @@ def extract_eda_features_from_raw(
 
     Parameters
     ----------
-    gsr_window : array-like, shape (n_samples,)
-        Raw GSR signal (e.g. 5 seconds at 10 Hz)
-    sampling_rate : int or float
-        Sampling rate in Hz
+    gsr_window : array-like, shape (n_samples,): Raw GSR signal (e.g. 5 seconds at 10 Hz). 
+    sampling_rate : int or float : Sampling rate in Hz. 
 
     Returns
     -------
-    features : dict
-        Flat dictionary of scalar features
+    features : dict. Flat dictionary of scalar features
     """
 
     features = {}
 
-    # ---------------------
-    # NeuroKit processing
-    # ---------------------
     eda_signals, eda_info = nk.eda_process(
         gsr_window,
         sampling_rate=sampling_rate
@@ -121,9 +115,7 @@ def extract_eda_features_from_raw(
     n_samples = len(phasic)
     duration = n_samples / sampling_rate
 
-    # ---------------------
     # PHASIC FEATURES
-    # ---------------------
     features["gsr_phasic_mean"] = np.mean(phasic)
     features["gsr_phasic_std"] = np.std(phasic)
     features["gsr_phasic_max"] = np.max(phasic)
@@ -134,9 +126,7 @@ def extract_eda_features_from_raw(
     features["gsr_phasic_d1_mean_abs"] = np.mean(np.abs(d_phasic))
     features["gsr_phasic_d1_max_abs"] = np.max(np.abs(d_phasic))
 
-    # ---------------------
     # TONIC FEATURES
-    # ---------------------
     features["gsr_tonic_mean"] = np.mean(tonic)
     features["gsr_tonic_std"] = np.std(tonic)
     features["gsr_tonic_min"] = np.min(tonic)
@@ -146,13 +136,10 @@ def extract_eda_features_from_raw(
     features["gsr_tonic_slope"] = np.polyfit(t, tonic, 1)[0]
     features["gsr_tonic_delta"] = tonic[-1] - tonic[0]
 
-    # ---------------------
     # SCR EVENT FEATURES
-    # ---------------------
     scr_amplitudes = np.asarray(eda_info.get("SCR_Amplitude", []))
     scr_rise_times = np.asarray(eda_info.get("SCR_RiseTime", []))
 
-    # Drop NaNs explicitly
     scr_amplitudes = scr_amplitudes[~np.isnan(scr_amplitudes)]
     scr_rise_times = scr_rise_times[~np.isnan(scr_rise_times)]
 
@@ -168,7 +155,6 @@ def extract_eda_features_from_raw(
         features["gsr_scr_risetime_mean"] = np.mean(scr_rise_times)
         features["gsr_scr_risetime_std"] = np.std(scr_rise_times)
     else:
-        # Explicit zeros encode "no arousal"
         features["gsr_scr_amp_mean"] = 0.0
         features["gsr_scr_amp_max"] = 0.0
         features["gsr_scr_amp_sum"] = 0.0

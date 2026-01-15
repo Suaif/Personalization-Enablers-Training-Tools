@@ -9,18 +9,25 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import numpy as np
+import shutil
 
 from callbacks.setup_callbacks import setup_callbacks
 from classification_model import SupervisedModel
 from classifiers.linear import LinearClassifier
-from conf import CUSTOM_SETTINGS, MODALITY, MODALITY_FOLDER, COMPONENT_OUTPUT_FOLDER, EXPERIMENT_ID, LABEL_TO_ID, EXPERIMENT_RESULTS_FOLDER
+from conf import CUSTOM_SETTINGS, MODALITY, MODALITY_FOLDER, COMPONENT_OUTPUT_FOLDER, EXPERIMENT_ID, LABEL_TO_ID, EXPERIMENT_RESULTS_FOLDER, INTER_SUBJECT_SPLIT
 from supervised_dataset import SupervisedDataModule, SupervisedTorchDataset
 from utils.init_utils import (init_augmentations, init_transforms, init_encoder)
-
+from utils.performance_by_game import get_performance_by_game
+from utils.inter_subject import apply_inter_subject_split, get_performance_by_subject
+from utils.predictions import generate_all_predictions_and_plot
 
 def run_supervised_training():
     print(json.dumps(CUSTOM_SETTINGS, indent=4))
-    splith_paths = {'train': "train.csv", 'val': "val.csv", 'test': "test.csv"}
+    
+    split_paths = {'train': "train.csv", 'val': "val.csv", 'test': "test.csv"}
+    
+    if INTER_SUBJECT_SPLIT and CUSTOM_SETTINGS[MODALITY]['pre_processing_config']['split_by']=="subject":
+        split_paths = apply_inter_subject_split(MODALITY_FOLDER, split_paths)
 
     train_transforms = {}
     test_transforms = {}
@@ -43,7 +50,7 @@ def run_supervised_training():
         path=MODALITY_FOLDER,
         input_type=CUSTOM_SETTINGS[MODALITY]['sup_config']['input_type'],
         batch_size=CUSTOM_SETTINGS[MODALITY]['sup_config']['batch_size'],
-        split=splith_paths,
+        split=split_paths,
         label_mapping=label_mapping,
         train_transforms=train_transforms,
         test_transforms=test_transforms,
@@ -132,156 +139,41 @@ def run_supervised_training():
     
     # Generate and save predictions to CSV files using the best model
     print("\nGenerating predictions using the best model...")
+
     # Load the best model checkpoint
     best_model_path = os.path.join(EXPERIMENT_RESULTS_FOLDER, f'{checkpoint_filename}.ckpt')
-    model = SupervisedModel.load_from_checkpoint(best_model_path, encoder=encoder, classifier=classifier)
-    model.eval()
-    model = model.to('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # Manually create dataloaders for prediction (setup was only for training/testing stages)
-    train_dataset = SupervisedTorchDataset(
-        datamodule.path,
-        datamodule.input_type,
-        datamodule.split['train'],
-        label_mapping=datamodule.label_mapping,
-        transforms=datamodule.train_transforms,
-        augmentations=None  # No augmentations for prediction
-    )
-    
-    val_dataset = SupervisedTorchDataset(
-        datamodule.path,
-        datamodule.input_type,
-        datamodule.split['val'],
-        label_mapping=datamodule.label_mapping,
-        transforms=datamodule.test_transforms,
-        augmentations=None
-    )
-    
-    test_dataset = SupervisedTorchDataset(
-        datamodule.path,
-        datamodule.input_type,
-        datamodule.split['test'],
-        label_mapping=datamodule.label_mapping,
-        transforms=datamodule.test_transforms,
-        augmentations=None
-    )
-    
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=datamodule.batch_size,
-        shuffle=False,
-        num_workers=0  # Use 0 workers for simplicity
-    )
-    
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=datamodule.batch_size,
-        shuffle=False,
-        num_workers=0
-    )
-    
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=datamodule.batch_size,
-        shuffle=False,
-        num_workers=0
-    )
-    
-    def generate_predictions(model, dataloader):
-        """Generate predictions for a given dataloader"""
-        all_predictions = []
-        all_labels = []
-        
-        with torch.no_grad():
-            for batch in dataloader:
-                X, Y = batch[0], batch[1]
-                X = X.to(model.device)
-                Y = Y.to(model.device)
-                
-                out = model(X)
-                preds = torch.argmax(out, dim=1)
-                
-                all_predictions.append(preds.cpu())
-                all_labels.append(Y.cpu())
-        
-        # Concatenate all batches
-        predictions = torch.cat(all_predictions)
-        labels = torch.cat(all_labels)
-        
-        return [{"preds": predictions, "labels": labels}]
-    
-    # Generate predictions for train set
-    train_predictions = generate_predictions(model, train_loader)
-    SupervisedModel.save_predictions_csv(
-        train_predictions,
-        os.path.join(EXPERIMENT_RESULTS_FOLDER, f'train_predictions.csv'),
-        split_name='train'
-    )
-    
-    # Generate predictions for validation set
-    val_predictions = generate_predictions(model, val_loader)
-    SupervisedModel.save_predictions_csv(
-        val_predictions,
-        os.path.join(EXPERIMENT_RESULTS_FOLDER, f'val_predictions.csv'),
-        split_name='val'
-    )
-    
-    # Generate predictions for test set
-    test_predictions = generate_predictions(model, test_loader)
-    SupervisedModel.save_predictions_csv(
-        test_predictions,
-        os.path.join(EXPERIMENT_RESULTS_FOLDER, f'test_predictions.csv'),
-        split_name='test'
+
+    generate_all_predictions_and_plot(
+        model_class=SupervisedModel,
+        checkpoint_path=best_model_path,
+        datamodule=datamodule,
+        dataset_class=SupervisedTorchDataset,
+        output_dir=EXPERIMENT_RESULTS_FOLDER,
+        experiment_id=EXPERIMENT_ID,
+        encoder=encoder,
+        classifier=classifier
     )
 
-    # --- Plotting Prediction Histograms ---
-    
-    # Invert label mapping
-    inv_label_mapping = {v: k for k, v in label_mapping.items()}
-    class_order = ['BORED', 'ENGAGED', 'FRUSTRATED'] # Enforce specific order if desired, or use sorted(inv_label_mapping.values())
-    
-    # Helper to extract data
-    def extract_data(pred_list):
-        preds = pred_list[0]['preds'].cpu().numpy()
-        labels = pred_list[0]['labels'].cpu().numpy()
-        return preds, labels
+    # Compute performance by game
+    for split_name, split_path in split_paths.items():
+        get_performance_by_game(
+            data_dir=MODALITY_FOLDER,
+            exp_dir=EXPERIMENT_RESULTS_FOLDER,
+            split_df=split_path,
+            split_predictions=split_name,
+            show_plot=False
+        )
 
-    train_preds_np, train_labels_np = extract_data(train_predictions)
-    val_preds_np, val_labels_np = extract_data(val_predictions)
-    test_preds_np, test_labels_np = extract_data(test_predictions)
+        # Copy train, val and test.csv to exp_dir
+        shutil.copyfile(f"{MODALITY_FOLDER}/{split_path}", f"{EXPERIMENT_RESULTS_FOLDER}/{split_path}")
 
-    # Dark Mode Toggle
-    DARK_MODE = False
-    if DARK_MODE:
-        plt.style.use('dark_background')
-    else:
-        plt.style.use('default')
-
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-
-    def plot_comparison(labels, preds, ax, title):
-        # Convert to string labels
-        pred_names = [inv_label_mapping.get(p, "UNKNOWN") for p in preds]
-        true_names = [inv_label_mapping.get(l, "UNKNOWN") for l in labels]
-        
-        df_pred = pd.DataFrame({'Class': pred_names, 'Type': 'Predictions'})
-        df_true = pd.DataFrame({'Class': true_names, 'Type': 'True Labels'})
-        combined_df = pd.concat([df_true, df_pred], ignore_index=True)
-        
-        sns.countplot(data=combined_df, x='Class', hue='Type', ax=ax, order=class_order)
-        ax.set_title(title)
-        ax.set_xlabel('Class')
-        ax.set_ylabel('Count')
-        ax.tick_params(axis='x', rotation=45)
-
-    plot_comparison(train_labels_np, train_preds_np, axes[0], 'Train Set')
-    plot_comparison(val_labels_np, val_preds_np, axes[1], 'Validation Set')
-    plot_comparison(test_labels_np, test_preds_np, axes[2], 'Test Set')
-    
-    fig.suptitle(f"Predictions Histogram \n {EXPERIMENT_ID}")
-    plt.tight_layout()
-    output_plot_path = os.path.join(EXPERIMENT_RESULTS_FOLDER, 'predictions_histogram.png')
-    plt.savefig(output_plot_path)
+    # Compute performance by subject
+    get_performance_by_subject(
+        data_dir=MODALITY_FOLDER,
+        exp_dir=EXPERIMENT_RESULTS_FOLDER,
+        split_paths=split_paths,
+        show_plot=False
+    )
     
     print(f"Experiment {EXPERIMENT_ID} finished, results saved to: {EXPERIMENT_RESULTS_FOLDER}")
     

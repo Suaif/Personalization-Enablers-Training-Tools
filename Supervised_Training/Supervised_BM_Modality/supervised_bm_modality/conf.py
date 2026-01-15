@@ -80,3 +80,5 @@ else:
             "FRUSTRATED": 2
     }
     }
+
+INTER_SUBJECT_SPLIT = CUSTOM_SETTINGS["shimmer"]["pre_processing_config"].get("inter_subject", False)

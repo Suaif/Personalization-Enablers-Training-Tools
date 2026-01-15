@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 import numpy as np
 import scipy
-from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.model_selection import StratifiedKFold
 
 
 def process_dataset(
@@ -127,9 +127,6 @@ def process_dataset(
                     if games[i] is None:
                         print(f"Game is None for: subject path: {subject_path}, session: {session}, interval: {i}")
                         continue
-                    # # FILTERING TESTS
-                    # if games[i] != "canvas_painter":
-                    #     continue
                     # apply resampling if needed
                     if resample_freq != frequency:
                         session_to_save = resample_bm(session_to_save, frequency, resample_freq)
@@ -160,7 +157,7 @@ def process_dataset(
             # repeat the processing for unlabeled ssl data
             if get_ssl:
                 try:
-                    segmented_session_ssl = segment_processed_session_ssl(
+                    segmented_session_ssl, ssl_games = segment_processed_session_ssl(
                         processed_session_ssl,
                         seq_len,
                         overlap,
@@ -168,6 +165,7 @@ def process_dataset(
                     )
                 except ValueError:
                     segmented_session_ssl = None
+                    ssl_games = None
 
                 if segmented_session_ssl is not None:
                     # apply pre-processing (e.g., normalization) for the whole session
@@ -191,7 +189,7 @@ def process_dataset(
                                 filepath.split(os.sep)[-1],
                                 os.path.basename(subject_path),
                                 None,
-                                None,
+                                ssl_games[i],
                                 session,
                             )
                         )
@@ -214,52 +212,98 @@ def process_dataset(
     # Drop infos column as it should not be saved (cannot be used as features)
     df_processed = df_processed.drop(columns=["infos"])
 
-    # FILTERING TESTS
-    # df_processed = df_processed[df_processed["game"] == "canvas_painter"].copy()
-
     split_by = pre_processing_cfg.get("split_by", "subject")
-    stratify = pre_processing_cfg.get("stratify", False)
+    stratify = pre_processing_cfg.get("stratify", False) # Balance the train/val/test splits by split_by and labels
+    game_split = pre_processing_cfg.get("game_split", None) # Which games to include in each split
 
     unique_feat_values = df_processed[split_by].unique()
     unique_feat_filtered = [feat_value for feat_value in unique_feat_values if feat_value is not None]
 
-    if stratify:
-        # Filter data to only relevant groups for splitting
-        df_split = df_processed[df_processed[split_by].isin(unique_feat_filtered)].copy()
+    if split_by == "game" and game_split:
+        train_feat_value = game_split.get("train", [])
+        val_feat_value = game_split.get("val", [])
+        test_feat_value = game_split.get("test", [])
         
-        X_dummy = np.zeros(len(df_split))
-        y_split = df_split["labels"]
-        groups_split = df_split[split_by]
+        configured_games = set(train_feat_value) | set(val_feat_value) | set(test_feat_value)
+        missing_games = set(unique_feat_filtered) - configured_games
+        if missing_games:
+            print(f"Warning: The following games found in the dataset are not included in the split configuration: {missing_games}")
+            
+    elif stratify:
+        balanced = False
+        n_tries = 0
+        max_tries = 10
         
-        # 1. Split into Test (approx 10%) and Rest (approx 90%)
-        n_groups = len(unique_feat_filtered)
-        n_splits = max(2, min(10, n_groups))
+        while not balanced and n_tries < max_tries:
+            # Create a group-level dataset: one row per group with aggregated label distribution
+            group_data = []
+            for group_val in unique_feat_filtered:
+                group_df = df_processed[df_processed[split_by] == group_val]
+                label_counts = group_df["labels"].value_counts().to_dict()
+                # Use majority label for stratification
+                majority_label = group_df["labels"].mode()[0]
+                group_data.append({
+                    'group': group_val,
+                    'majority_label': majority_label,
+                    'label_counts': label_counts
+                })
+            
+            group_df_agg = pd.DataFrame(group_data)
+            
+            # Split is made at the group level
+            n_groups = len(unique_feat_filtered)
+            n_splits = max(3, min(7, n_groups))
+            
+            X_groups = np.zeros(len(group_df_agg))
+            y_groups = group_df_agg["majority_label"]
+            
+            skf = StratifiedKFold(n_splits=n_splits, shuffle=True)
+            
+            all_folds = list(skf.split(X_groups, y_groups))
+            
+            # Assign folds to splits
+            if n_splits == 3:
+                test_idx = all_folds[0][1]
+                val_idx = all_folds[1][1]
+                train_idx = all_folds[2][1]
+            else:
+                test_idx = all_folds[0][1]
+                val_idx = all_folds[1][1]
+                train_idx = np.concatenate([all_folds[i][1] for i in range(2, n_splits)])
+            
+            # Get the actual group values
+            test_feat_value = group_df_agg.iloc[test_idx]['group'].values
+            val_feat_value = group_df_agg.iloc[val_idx]['group'].values
+            train_feat_value = group_df_agg.iloc[train_idx]['group'].values
+            
+            # Verify no overlap between splits
+            assert len(set(train_feat_value) & set(val_feat_value)) == 0, "Train/Val overlap!"
+            assert len(set(train_feat_value) & set(test_feat_value)) == 0, "Train/Test overlap!"
+            assert len(set(val_feat_value) & set(test_feat_value)) == 0, "Val/Test overlap!"
+            
+            # Verify all classes are present in each split
+            train_classes = df_processed[df_processed[split_by].isin(train_feat_value)]["labels"].unique()
+            val_classes = df_processed[df_processed[split_by].isin(val_feat_value)]["labels"].unique()
+            test_classes = df_processed[df_processed[split_by].isin(test_feat_value)]["labels"].unique()
+            
+            print(f"Attempt {n_tries + 1}:")
+            print(f"  Train: {len(train_feat_value)} groups, classes: {sorted(train_classes)}")
+            print(f"  Val: {len(val_feat_value)} groups, classes: {sorted(val_classes)}")
+            print(f"  Test: {len(test_feat_value)} groups, classes: {sorted(test_classes)}")
+            
+            all_classes = df_processed["labels"].unique()
+            if len(test_classes) < len(all_classes):
+                print(f"  WARNING: Test set is missing classes: {set(all_classes) - set(test_classes)}")
+            if len(val_classes) < len(all_classes):
+                print(f"  WARNING: Val set is missing classes: {set(all_classes) - set(val_classes)}")
+            
+            balanced = len(train_classes) == len(val_classes) == len(test_classes) == len(all_classes)
+            n_tries += 1
         
-        sgkf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=42)
-        
-        # Take the first fold as Test
-        train_val_indices, test_indices = next(sgkf.split(X_dummy, y_split, groups_split))
-        
-        test_feat_value = df_split.iloc[test_indices][split_by].unique()
-        
-        # 2. Split Rest into Val (approx 10% of total) and Train (approx 80% of total)
-        # We need Val to be roughly 1/9th of the Rest (since Rest is 9/10th of total)
-        df_train_val = df_split.iloc[train_val_indices].reset_index(drop=True)
-        X_dummy_tv = np.zeros(len(df_train_val))
-        y_split_tv = df_train_val["labels"]
-        groups_split_tv = df_train_val[split_by]
-        
-        n_groups_tv = len(df_train_val[split_by].unique())
-        n_splits_val = max(2, min(max(2, n_splits - 1), n_groups_tv))
-        
-        sgkf_val = StratifiedGroupKFold(n_splits=n_splits_val, shuffle=True, random_state=42)
-        
-        # Take first fold as Val
-        train_indices_internal, val_indices_internal = next(sgkf_val.split(X_dummy_tv, y_split_tv, groups_split_tv))
-        
-        val_feat_value = df_train_val.iloc[val_indices_internal][split_by].unique()
-        train_feat_value = df_train_val.iloc[train_indices_internal][split_by].unique()
-        
+        if balanced:
+            print(f"\n Balanced split found after {n_tries} tries")
+        else:
+            print(f"\n Could not find balanced split after {max_tries} tries, current split may have some class imbalance")
     else:
         test_feat_value = np.random.choice(unique_feat_filtered, max(1, int(0.1 * len(unique_feat_filtered))), replace=False)
         no_test = [feat_value for feat_value in unique_feat_filtered if feat_value not in test_feat_value]
@@ -413,7 +457,6 @@ def process_session(
                 if (prev_end - last_finished_level_start).total_seconds() < threshold:
                     last_finished_level_start = prev_start
             # assign label to the latest level interval (from stack) if time difference is not larger than a threhsold
-#             print("START-END:", last_finished_level_start, last_finished_level_end)
             if (
                 event_type != "SKIP" and
                 last_finished_level_end is not None and
@@ -422,8 +465,6 @@ def process_session(
                 if event_type != "FEEDBACK_RECEIVED":
                     label = event_type
                     info_val = None
-                # elif float(info) in [0.5, 0.5000001]:
-                #     continue
                 else:
                     label = continious_to_categorical(info, borders=borders) if cont_to_cat else info
                     info_val = float(info)
@@ -621,12 +662,23 @@ def segment_processed_session_ssl(
         session_df
         .drop([x for x in drop_cols if x in session_df.columns], axis=1)
     )
+    
+    # Extract games if available, otherwise fill with None
+    if "game_name" in session_df.columns:
+        session_games = session_df["game_name"].values
+    else:
+        session_games = np.array([None] * len(session_df))
 
+    games = []
     for i in range(0, len(session_data_sensors) - window_length, int(window_length * (1 - overlap))):
         curr_window = session_data_sensors[i: i + window_length]
         segmented_session.append(curr_window)
+        
+        # Get game for this window. Using middle sample to be safe against boundary conditions
+        mid_idx = i + window_length // 2
+        games.append(session_games[mid_idx])
 
-    return np.stack(segmented_session)
+    return np.stack(segmented_session), games
 
 
 def normalize(bm_segments):
